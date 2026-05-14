@@ -1,19 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { getProject, updateProject, deleteProject } from '../api/projects';
+import { getProject, updateProject, deleteProject, getMembers, addMember, removeMember } from '../api/projects';
 import {
   getStatuses, createStatus, deleteStatus,
   getTransitions, createTransition, deleteTransition,
 } from '../api/workflow';
 import { getCustomFields, createCustomField, deleteCustomField } from '../api/customFields';
+import { getUsers } from '../api/users';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Spinner } from '../components/ui/Spinner';
-import type { StatusCategory, FieldType } from '../types';
+import { Avatar } from '../components/ui/Avatar';
+import type { StatusCategory, FieldType, ProjectRole } from '../types';
 import toast from 'react-hot-toast';
 
-type Tab = 'general' | 'workflow' | 'customfields';
+type Tab = 'general' | 'workflow' | 'customfields' | 'members';
 
 const categoryDot: Record<string, string> = {
   DONE: 'bg-green-500',
@@ -46,6 +48,16 @@ export const ProjectSettingsPage: React.FC = () => {
     queryKey: ['custom-fields', projectId],
     queryFn: () => getCustomFields(projectId!),
     enabled: tab === 'customfields',
+  });
+  const { data: members } = useQuery({
+    queryKey: ['members', projectId],
+    queryFn: () => getMembers(projectId!),
+    enabled: tab === 'members',
+  });
+  const { data: allUsers } = useQuery({
+    queryKey: ['users'],
+    queryFn: getUsers,
+    enabled: tab === 'members',
   });
 
   // ── General tab state ──────────────────────────────────────────────────────
@@ -143,6 +155,32 @@ export const ProjectSettingsPage: React.FC = () => {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['custom-fields', projectId] }),
   });
 
+  // ── Members tab state ──────────────────────────────────────────────────────
+  const [newMember, setNewMember] = useState<{ userId: string; role: ProjectRole }>({
+    userId: '',
+    role: 'MEMBER',
+  });
+
+  const addMemberMutation = useMutation({
+    mutationFn: ({ userId, role }: { userId: string; role: ProjectRole }) =>
+      addMember(projectId!, userId, role),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['members', projectId] });
+      setNewMember({ userId: '', role: 'MEMBER' });
+      toast.success('Member added');
+    },
+    onError: () => toast.error('Failed to add member'),
+  });
+
+  const removeMemberMutation = useMutation({
+    mutationFn: (userId: string) => removeMember(projectId!, userId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['members', projectId] }),
+    onError: () => toast.error('Failed to remove member'),
+  });
+
+  const memberUserIds = new Set((members ?? []).map(m => m.user.id));
+  const addableUsers = (allUsers ?? []).filter(u => !memberUserIds.has(u.id));
+
   // ── Render ─────────────────────────────────────────────────────────────────
   if (isLoading) {
     return <div className="flex justify-center py-20"><Spinner size="lg" /></div>;
@@ -157,7 +195,7 @@ export const ProjectSettingsPage: React.FC = () => {
 
       {/* Tab switcher */}
       <div className="flex gap-1 mb-6 bg-gray-100 rounded-lg p-1 w-fit">
-        {(['general', 'workflow', 'customfields'] as Tab[]).map(t => (
+        {(['general', 'workflow', 'customfields', 'members'] as Tab[]).map(t => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -312,6 +350,78 @@ export const ProjectSettingsPage: React.FC = () => {
               <Button type="submit" loading={createTransitionMutation.isPending}>Add</Button>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* ── Members ── */}
+      {tab === 'members' && (
+        <div className="bg-white rounded-xl border p-6">
+          <h3 className="font-bold text-gray-800 mb-1">Members</h3>
+          <p className="text-xs text-gray-400 mb-4">
+            Manage who has access to this project and their roles.
+          </p>
+          <div className="flex flex-col gap-2 mb-4">
+            {(members ?? []).map(m => {
+              const isOwner = project?.owner.id === m.user.id;
+              return (
+                <div key={m.user.id} className="flex items-center justify-between p-3 border rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <Avatar name={m.user.displayName} size="sm" />
+                    <div className="flex flex-col">
+                      <span className="font-medium text-gray-800 text-sm">{m.user.displayName}</span>
+                      <span className="text-xs text-gray-400">{m.user.email}</span>
+                    </div>
+                    <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">{m.role}</span>
+                    {isOwner && (
+                      <span className="text-xs text-brand-orange font-medium">Owner</span>
+                    )}
+                  </div>
+                  {!isOwner && (
+                    <button
+                      onClick={() => removeMemberMutation.mutate(m.user.id)}
+                      className="text-gray-300 hover:text-red-500 text-xl leading-none"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+            {!(members ?? []).length && (
+              <p className="text-sm text-gray-400 text-center py-4">No members yet</p>
+            )}
+          </div>
+          <form
+            onSubmit={e => {
+              e.preventDefault();
+              if (newMember.userId) addMemberMutation.mutate(newMember);
+            }}
+            className="flex gap-2 flex-wrap"
+          >
+            <select
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm flex-1 min-w-40 outline-none focus:ring-2 focus:ring-brand-orange"
+              value={newMember.userId}
+              onChange={e => setNewMember(m => ({ ...m, userId: e.target.value }))}
+              required
+            >
+              <option value="">Select user...</option>
+              {addableUsers.map(u => (
+                <option key={u.id} value={u.id}>
+                  {u.displayName} ({u.email})
+                </option>
+              ))}
+            </select>
+            <select
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-brand-orange"
+              value={newMember.role}
+              onChange={e => setNewMember(m => ({ ...m, role: e.target.value as ProjectRole }))}
+            >
+              <option value="MEMBER">Member</option>
+              <option value="ADMIN">Admin</option>
+              <option value="VIEWER">Viewer</option>
+            </select>
+            <Button type="submit" loading={addMemberMutation.isPending}>Add Member</Button>
+          </form>
         </div>
       )}
 

@@ -132,6 +132,11 @@ export interface CursorPage<T> {
   hasMore: boolean;
 }
 
+export interface ProjectMember {
+  user: User;
+  role: ProjectRole;
+}
+
 export interface AuthResponse {
   accessToken: string;
   refreshToken: string;
