@@ -1,0 +1,20 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-navy-50: #eef2ff;
+  --color-navy-100: #e0e7ff;
+  --color-navy-700: #1e3a5f;
+  --color-navy-800: #162d4a;
+  --color-navy-900: #0f1f33;
+  --color-brand-orange: #e8640a;
+  --color-brand-orange-hover: #c9540a;
+  --color-brand-green: #2ecc71;
+  --font-family-sans: 'Inter', system-ui, sans-serif;
+}
+
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900 font-sans;
+  }
+}
